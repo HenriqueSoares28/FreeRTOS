@@ -1,64 +1,48 @@
 #include <Arduino.h>
+#include <WiFi.h>
 
-int cont1 = 0;
-int cont2 = 0;
+#include "config.h" // Inclui informações sobre as credenciais do wifi
+                    // #define WIFI_SSID "xxxx"
+                    // #define WIFI_PASS "xxxx"
 
-TaskHandle_t task1Handle = NULL;
+#define WIFI_TIMEOUT 20000
 
-void task1(void *parameters) {
+void keepWifiAlive(void *parameters) {
   for (;;) {
-    Serial.print("Task 1: ");
-    Serial.println(cont1);
-    cont1++;
-    // função de delay do FreeRTOS
-    vTaskDelay(1000 / portTICK_PERIOD_MS); // daleu de 1 segundo
-  }
-}
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("WiFi connected");
+      vTaskDelay(10000 /
+                 portTICK_PERIOD_MS); // 10 sec delay if wifi is connected
+      continue; // Continue to the next iteration of the loop
+    }
 
-void task2(void *parameters) {
-  for (;;) {
-    Serial.print("Task 2 ");
-    Serial.println(cont2);
-    cont2++;
-    // função de delay do FreeRTOS
-    vTaskDelay(1000 / portTICK_PERIOD_MS); // daleu de 1 segundo
-  }
-}
+    Serial.println("WiFi not connected, trying to connect");
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
 
-void importantTask(void *parameters) {
-    vTaskSuspendAll(); // Suspende todas as tarefas
-    Serial.println("Task 3");
-    xTaskResumeAll(); // Resume todas as tarefas
+    unsigned long start = millis();
+
+    while (WiFi.status() != WL_CONNECTED && millis() - start < WIFI_TIMEOUT) {
+      if (WiFi.status() == WL_CONNECT_FAILED) {
+        Serial.println("[WiFi] failed");
+        vTaskDelay(20000 / portTICK_PERIOD_MS); // 20 sec delay if wifi failed
+        continue; // Continue to the next iteration of the loop
+      }
+    }
+    Serial.println("[WiFi] connected " + WiFi.localIP());
+  }
 }
 
 void setup() {
   Serial.begin(9600);
-  xTaskCreate(task1,       // function name
-              "Task 1",    // task name
-              1000,        // stack size
-              NULL,        // parameters
-              1,           // priority
-              &task1Handle // task handle
-  );
-
-  xTaskCreate(task2,    // function name
-              "Task 2", // task name
-              1000,     // stack size
-              NULL,     // parameters
-              1,        // priority
-              NULL      // task handle
+  xTaskCreatePinnedToCore(keepWifiAlive,     // Função que será executada
+                          "Keep Wifi Alive", // Nome da tarefa
+                          5000,              // Tamanho da pilha
+                          NULL,              // Parâmetros da função
+                          1,                 // Prioridade
+                          NULL,              // Handle
+                          CONFIG_ARDUINO_RUNNING_CORE // Core
   );
 }
 
-void loop() {
-    if (cont1 == 3 && task1Handle != NULL) { // Verifica se task1Handle é diferente de NULL para evitar que o Loop seja suspendido
-        vTaskSuspend(task1Handle);
-    }
-    if (cont2 == 5 && task1Handle != NULL) { 
-        vTaskResume(task1Handle);
-    }
-    if (cont1 == 10 && task1Handle != NULL) {
-        vTaskDelete(task1Handle);
-        task1Handle = NULL;
-    }
-}
+void loop() {}
